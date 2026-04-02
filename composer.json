@@ -1,0 +1,21 @@
+{
+    "name": "EC-NDS/autoresponse",
+    "type": "roundcube-plugin",
+    "description": "Simple vacation / out-of-office autoresponse settings for Roundcube",
+    "keywords": ["roundcube", "plugin", "vacation", "autoresponse", "sieve"],
+    "license": "MIT",
+    "version": "1.2",
+    "require": {
+        "php": ">=7.4",
+        "roundcube/roundcubemail": ">=1.5"
+    },
+    "suggest": {
+        "roundcube/managesieve": "Provides the Net_Sieve library used for server communication"
+    },
+    "extra": {
+        "roundcube": {
+            "min-version": "1.5",
+            "max-version": "9.9"
+        }
+    }
+}

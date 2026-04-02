@@ -1,0 +1,21 @@
+<?php
+$labels = [];
+$labels['autoresponse']             = 'Autoresponse';
+$labels['autoresponse_title']       = 'Configure vacation / out-of-office reply';
+$labels['hint']                     = 'Set up your automatic out-of-office reply here.';
+$labels['enabled']                  = 'Enable autoresponse';
+$labels['subject']                  = 'Subject';
+$labels['body']                     = 'Message body';
+$labels['period_section']           = 'Validity period (optional)';
+$labels['period_hint']              = 'Leave both fields empty for the reply to be active indefinitely.';
+$labels['date_from']                = 'Valid from';
+$labels['date_to']                  = 'Valid until';
+$labels['successfullysaved']        = 'Settings saved successfully.';
+$labels['error_empty']              = 'Please enter a subject and/or message body.';
+$labels['error_date_both_required'] = 'Please provide both a start and end date, or leave both empty.';
+$labels['error_date_invalid']       = 'The date entered is invalid (expected: YYYY-MM-DD).';
+$labels['error_date_range']         = 'The start date must be before the end date.';
+$labels['sieve_error']              = 'Sieve error:';
+$labels['sieve_connect_error']      = 'Could not connect to the Sieve server.';
+$labels['sieve_save_error']         = 'Could not save the Sieve script.';
+$labels['sieve_activate_error']     = 'Could not activate the Sieve script.';

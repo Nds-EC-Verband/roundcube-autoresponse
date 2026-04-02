@@ -1,0 +1,73 @@
+/* Autoresponse Plugin Styles */
+
+/* Hint im Formular */
+.autoresponse-form .autoresponse-hint {
+    margin: 0 0 1em 0;
+    color: #666;
+    font-size: 0.9em;
+}
+
+/* Tabelle */
+.autoresponse-form .propform td.title {
+    width: 160px;
+    white-space: nowrap;
+    padding-right: 1em;
+    vertical-align: middle;
+    font-weight: 500;
+}
+
+.autoresponse-form .propform td {
+    padding: 6px 4px;
+    vertical-align: middle;
+}
+
+/* Felder */
+.autoresponse-form input.text,
+.autoresponse-form textarea.text {
+    width: 100%;
+    max-width: 520px;
+    box-sizing: border-box;
+}
+
+.autoresponse-form textarea.text {
+    resize: vertical;
+}
+
+.autoresponse-form input[type="date"] {
+    max-width: 180px;
+}
+
+/* Deaktivierte Zeilen */
+.autoresponse-form .disabled-row {
+    opacity: 0.45;
+    pointer-events: none;
+}
+
+/* Save-Button-Leiste – sitzt AUSSERHALB des <form>-Tags,
+   daher vom übergeordneten .box-Container aus ansprechen */
+.box .formbuttons {
+    margin-top: 1.2em;
+    padding-top: 0.8em;
+    border-top: 1px solid #e0e0e0;
+}
+
+/* FIX 2: Datumsfeld mit Lösch-Button */
+.autoresponse-date-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.autoresponse-date-clear {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #999;
+    font-size: 1.1em;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.autoresponse-date-clear:hover {
+    color: #c00;
+}

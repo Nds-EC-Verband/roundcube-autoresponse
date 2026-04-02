@@ -1,0 +1,21 @@
+<?php
+$labels = [];
+$labels['autoresponse']             = 'Abwesenheitsnotiz';
+$labels['autoresponse_title']       = 'Automatische Abwesenheitsnotiz einrichten';
+$labels['hint']                     = 'Konfigurieren Sie hier Ihre automatische Abwesenheitsnotiz.';
+$labels['enabled']                  = 'Abwesenheitsnotiz aktiv';
+$labels['subject']                  = 'Betreff';
+$labels['body']                     = 'Nachrichtentext';
+$labels['period_section']           = 'Gültigkeitszeitraum (optional)';
+$labels['period_hint']              = 'Lassen Sie beide Felder leer, damit die Abwesenheitsnotiz dauerhaft gilt.';
+$labels['date_from']                = 'Gültig ab';
+$labels['date_to']                  = 'Gültig bis';
+$labels['successfullysaved']        = 'Einstellungen wurden gespeichert.';
+$labels['error_empty']              = 'Bitte geben Sie Betreff und/oder Nachrichtentext ein.';
+$labels['error_date_both_required'] = 'Bitte geben Sie entweder beide Daten (von und bis) an oder lassen Sie beide leer.';
+$labels['error_date_invalid']       = 'Das angegebene Datum ist ungültig (Format: JJJJ-MM-TT).';
+$labels['error_date_range']         = 'Das Startdatum muss vor dem Enddatum liegen.';
+$labels['sieve_error']              = 'Sieve-Fehler:';
+$labels['sieve_connect_error']      = 'Verbindung zum Sieve-Server fehlgeschlagen.';
+$labels['sieve_save_error']         = 'Das Sieve-Skript konnte nicht gespeichert werden.';
+$labels['sieve_activate_error']     = 'Das Sieve-Skript konnte nicht aktiviert werden.';

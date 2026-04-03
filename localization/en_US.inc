@@ -1,21 +1,40 @@
 <?php
+
+/**
+ * Autoresponse Plugin – English translation
+ */
+
 $labels = [];
-$labels['autoresponse']             = 'Autoresponse';
-$labels['autoresponse_title']       = 'Configure vacation / out-of-office reply';
-$labels['hint']                     = 'Set up your automatic out-of-office reply here.';
-$labels['enabled']                  = 'Enable autoresponse';
-$labels['subject']                  = 'Subject';
-$labels['body']                     = 'Message body';
-$labels['period_section']           = 'Validity period (optional)';
-$labels['period_hint']              = 'Leave both fields empty for the reply to be active indefinitely.';
-$labels['date_from']                = 'Valid from';
-$labels['date_to']                  = 'Valid until';
-$labels['successfullysaved']        = 'Settings saved successfully.';
-$labels['error_empty']              = 'Please enter a subject and/or message body.';
-$labels['error_date_both_required'] = 'Please provide both a start and end date, or leave both empty.';
-$labels['error_date_invalid']       = 'The date entered is invalid (expected: YYYY-MM-DD).';
+
+// Navigation & page title
+$labels['autoresponse']       = 'Out of Office';
+$labels['autoresponse_title'] = 'Manage out-of-office reply';
+
+// Form fields
+$labels['enabled']            = 'Out-of-office reply active';
+$labels['subject']            = 'Subject';
+$labels['body']               = 'Message';
+
+// Validity period section
+$labels['period_section']     = 'Validity period (optional)';
+$labels['period_hint']        = 'If a date range is specified, the out-of-office reply will only be sent within that period. Either fill in both fields or leave both empty.';
+$labels['date_from']          = 'From';
+$labels['date_to']            = 'Until';
+
+// Hint text above the form
+$labels['hint']               = 'Enable the out-of-office reply to automatically respond to incoming e-mails, e.g. during your vacation.';
+
+// Success messages
+$labels['successfullysaved']  = 'Settings saved successfully.';
+
+// Validation error messages
+$labels['error_empty']              = 'Please enter at least a subject or a message.';
+$labels['error_date_both_required'] = 'Please fill in both date fields or leave both empty.';
+$labels['error_date_invalid']       = 'One of the dates has an invalid format. Please use the format YYYY-MM-DD.';
 $labels['error_date_range']         = 'The start date must be before the end date.';
-$labels['sieve_error']              = 'Sieve error:';
-$labels['sieve_connect_error']      = 'Could not connect to the Sieve server.';
-$labels['sieve_save_error']         = 'Could not save the Sieve script.';
-$labels['sieve_activate_error']     = 'Could not activate the Sieve script.';
+
+// Sieve error messages
+$labels['sieve_error']            = 'Sieve error:';
+$labels['sieve_connect_error']    = 'Could not connect to the Sieve server. Please check your configuration.';
+$labels['sieve_save_error']       = 'The Sieve script could not be saved.';
+$labels['sieve_activate_error']   = 'The Sieve script could not be activated.';

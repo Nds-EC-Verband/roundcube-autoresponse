@@ -133,6 +133,15 @@ class autoresponse extends rcube_plugin
         ]);
 
         if ($result === true) {
+            // Always persist subject/body/dates in user prefs so they survive
+            // a disabled state. The sieve script only stores data when active,
+            // but the form fields must stay populated regardless of enabled.
+            $this->rc->user->save_prefs([
+                'autoresponse_subject'   => $subject,
+                'autoresponse_body'      => $body,
+                'autoresponse_date_from' => $date_from,
+                'autoresponse_date_to'   => $date_to,
+            ]);
             $this->rc->output->command('display_message', $this->gettext('successfullysaved'), 'confirmation');
         } else {
             $this->rc->output->command('display_message', $this->gettext('sieve_error') . ' ' . $result, 'error');
@@ -155,7 +164,7 @@ class autoresponse extends rcube_plugin
     // Form renderer  (plugin.body slot)
     // -------------------------------------------------------------------------
 
-public function render_form(array $attrib = []): string
+    public function render_form(array $attrib = []): string
     {
         $data = $this->load_vacation_data();
 
@@ -204,6 +213,8 @@ public function render_form(array $attrib = []): string
         );
 
         // --- Date fields with clear button ---
+        // type="date" cannot be emptied by the user without JS, so a small
+        // × button is added that sets the field value to '' via onclick.
         $date_field = function(string $id, string $name, string $value): string {
             $input = html::tag('input', [
                 'type'  => 'date',
@@ -215,7 +226,7 @@ public function render_form(array $attrib = []): string
             $clear = html::tag('button', [
                 'type'    => 'button',
                 'class'   => 'autoresponse-date-clear',
-                'onclick' => "document.getElementById('" . rcube::JQ($id) . "').value=''; $('#' + '" . rcube::JQ($id) . "').trigger('change'); return false;",
+                'onclick' => "document.getElementById('" . rcube::JQ($id) . "').value=''; return false;",
                 'title'   => '×',
             ], '×');
             return html::span(['class' => 'autoresponse-date-wrap'], $input . $clear);
@@ -234,7 +245,7 @@ public function render_form(array $attrib = []): string
                 . html::tag('input', ['type' => 'hidden', 'name' => '_action', 'value' => 'plugin.autoresponse-save'])
                 . html::tag('input', ['type' => 'hidden', 'name' => '_task',   'value' => 'settings']);
 
-        // Wire up the form object so Roundcube can find it
+        // Wire up the form object so Roundcube can find it (same as password plugin)
         $this->rc->output->add_gui_object('passform', 'autoresponse-form');
 
         $submit_button = $this->rc->output->button([
@@ -255,21 +266,6 @@ public function render_form(array $attrib = []): string
             html::p(['class' => 'autoresponse-hint'], rcube::Q($this->gettext('hint'))) .
             $table->show()
         );
-
-        // --- Client-Side Validation Logic (JavaScript) ---
-        $js = "
-            // Setzt Subject und Body auf Pflichtfelder, wenn Autoresponder aktiv ist
-            $('#autoresponse_enabled').on('change', function() {
-                var is_checked = $(this).is(':checked');
-                $('#autoresponse_subject, #autoresponse_body').prop('required', is_checked);
-            }).trigger('change'); // Führt es beim Laden direkt einmal aus
-
-            // Setzt das Mindestdatum für 'bis' auf den Wert von 'von'
-            $('#autoresponse_date_from').on('change', function() {
-                $('#autoresponse_date_to').attr('min', $(this).val());
-            }).trigger('change');
-        ";
-        $this->rc->output->add_script($js, 'docready');
 
         return html::div(['id' => 'prefs-title', 'class' => 'boxtitle'], $this->gettext('autoresponse'))
             . html::div(
@@ -292,18 +288,32 @@ public function render_form(array $attrib = []): string
             'date_to'   => '',
         ];
 
+        // Load persisted form fields from user prefs.
+        // These are saved on every submit, independent of enabled state,
+        // so Subject/Body/Dates survive a disable -> save -> re-open cycle.
+        $prefs = [
+            'subject'   => (string) $this->rc->config->get('autoresponse_subject',   ''),
+            'body'      => (string) $this->rc->config->get('autoresponse_body',      ''),
+            'date_from' => (string) $this->rc->config->get('autoresponse_date_from', ''),
+            'date_to'   => (string) $this->rc->config->get('autoresponse_date_to',   ''),
+        ];
+
         try {
             $sieve = $this->get_sieve();
             if ($sieve === null) {
-                return $defaults;
+                // No sieve connection - still show saved form data, just disabled
+                return array_merge($defaults, $prefs);
             }
 
             $content = $sieve->get_script(self::SCRIPT_NAME);
             if ($content === false || $content === null) {
-                return $defaults;
+                return array_merge($defaults, $prefs);
             }
 
-            $data = array_merge($defaults, $this->parse_vacation_script((string) $content));
+            // Parse only the enabled-state from the sieve script.
+            // Subject/Body/Dates come from user prefs (always up to date).
+            $sieve_data = $this->parse_vacation_script((string) $content);
+            $data = array_merge($defaults, $prefs, ['enabled' => $sieve_data['enabled']]);
 
             // Auto-disable the checkbox if the validity period has expired.
             // The Sieve script itself already stopped sending replies, but the
@@ -319,7 +329,7 @@ public function render_form(array $attrib = []): string
 
         } catch (Throwable $e) {
             $this->log_error($e->getMessage());
-            return $defaults;
+            return array_merge($defaults, $prefs);
         }
     }
 

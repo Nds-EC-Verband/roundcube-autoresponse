@@ -4,12 +4,18 @@
  * Autoresponse Plugin for Roundcube
  *
  * Adds a dedicated "Abwesenheitsnotiz" entry to the Settings navigation.
- * Uses the built-in Roundcube plugin template (same as password plugin).
+ * Uses the built-in Roundcube plugin template.
  *
  * Requires: managesieve plugin
  * PHP:      7.4+
  *
  * @license MIT
+ *
+ * Supported config keys (all optional):
+ *   autoresponse_sieve_host      – overrides managesieve_host
+ *   autoresponse_sieve_port      – overrides managesieve_port
+ *   autoresponse_sieve_tls       – overrides managesieve_usetls
+ *   autoresponse_sieve_lib       – absolute path to rcube_sieve.php
  */
 class autoresponse extends rcube_plugin
 {
@@ -20,11 +26,21 @@ class autoresponse extends rcube_plugin
     /** @var rcube */
     private $rc;
 
-    private const SCRIPT_NAME = 'autoresponse';
+    private const SCRIPT_NAME      = 'autoresponse';
+    private const MAX_SUBJECT_LEN  = 100;
+    private const MAX_BODY_LEN     = 1000;
 
-    // -------------------------------------------------------------------------
+    /**
+     * Submitted form data to repopulate the form after a validation error.
+     * Set in action_save() before any early return so render_form() can use it.
+     *
+     * @var array<string,mixed>|null
+     */
+    private $pending_form_data = null;
+
+    // =========================================================================
     // Init
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     public function init(): void
     {
@@ -37,9 +53,9 @@ class autoresponse extends rcube_plugin
         $this->register_action('plugin.autoresponse-save', [$this, 'action_save']);
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Hooks
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     public function settings_actions(array $args): array
     {
@@ -54,29 +70,17 @@ class autoresponse extends rcube_plugin
         return $args;
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Actions
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     public function action_view(): void
     {
         $this->rc->output->set_pagetitle($this->gettext('autoresponse'));
-
         $this->include_stylesheet($this->get_css_path());
-
         $this->rc->output->add_label('save', 'saving');
         $this->rc->output->set_env('action', 'plugin.autoresponse');
-
-        // Register and immediately enable the save command in JS.
-        // Without this the toolbar button stays permanently disabled because
-        // Roundcube does not know the command 'plugin.autoresponse-save'.
-        $this->rc->output->add_script(
-            "rcmail.register_command('plugin.autoresponse-save', function() {" .
-            "  document.getElementById('autoresponse-form').submit();" .
-            "}, true);",
-            'docready'
-        );
-
+        $this->register_save_command();
         $this->register_handler('plugin.body', [$this, 'render_form']);
         $this->rc->output->send('plugin');
     }
@@ -85,7 +89,7 @@ class autoresponse extends rcube_plugin
     {
         $this->rc->request_security_check(rcube_utils::INPUT_POST);
 
-        // CSS must be included here too — action_view() is not called on POST
+        // CSS must be included here too — action_view() is not called on POST.
         $this->include_stylesheet($this->get_css_path());
 
         $enabled   = rcube_utils::get_input_value('_autoresponse_enabled',   rcube_utils::INPUT_POST) === '1';
@@ -94,10 +98,32 @@ class autoresponse extends rcube_plugin
         $date_from = trim((string) rcube_utils::get_input_value('_autoresponse_date_from', rcube_utils::INPUT_POST));
         $date_to   = trim((string) rcube_utils::get_input_value('_autoresponse_date_to',   rcube_utils::INPUT_POST));
 
+        // Store submitted values now so render_form() can repopulate the fields
+        // after any validation error — the user does not lose their input.
+        $this->pending_form_data = [
+            'enabled'   => $enabled,
+            'subject'   => $subject,
+            'body'      => $body,
+            'date_from' => $date_from,
+            'date_to'   => $date_to,
+        ];
+
+        // -----------------------------------------------------------------
+        // Validation
+        // -----------------------------------------------------------------
         if ($enabled) {
             if (trim($subject) === '' && trim($body) === '') {
-                $this->rc->output->command('display_message', $this->gettext('error_empty'), 'error');
-                $this->rc->output->send();
+                $this->abort_with_error('error_empty');
+                return; 
+            }
+
+            if (mb_strlen($subject) > self::MAX_SUBJECT_LEN) {
+                $this->abort_with_error('error_subject_too_long');
+                return;
+            }
+
+            if (mb_strlen($body) > self::MAX_BODY_LEN) {
+                $this->abort_with_error('error_body_too_long');
                 return;
             }
 
@@ -105,25 +131,25 @@ class autoresponse extends rcube_plugin
             $has_to   = $date_to   !== '';
 
             if ($has_from !== $has_to) {
-                $this->rc->output->command('display_message', $this->gettext('error_date_both_required'), 'error');
-                $this->rc->output->send();
+                $this->abort_with_error('error_date_both_required');
                 return;
             }
 
             if ($has_from) {
                 if (!$this->is_valid_date($date_from) || !$this->is_valid_date($date_to)) {
-                    $this->rc->output->command('display_message', $this->gettext('error_date_invalid'), 'error');
-                    $this->rc->output->send();
+                    $this->abort_with_error('error_date_invalid');
                     return;
                 }
                 if ($date_from > $date_to) {
-                    $this->rc->output->command('display_message', $this->gettext('error_date_range'), 'error');
-                    $this->rc->output->send();
+                    $this->abort_with_error('error_date_range');
                     return;
                 }
             }
         }
 
+        // -----------------------------------------------------------------
+        // Persist to Sieve
+        // -----------------------------------------------------------------
         $result = $this->save_vacation_sieve([
             'enabled'   => $enabled,
             'subject'   => $subject,
@@ -133,40 +159,38 @@ class autoresponse extends rcube_plugin
         ]);
 
         if ($result === true) {
-            // Always persist subject/body/dates in user prefs so they survive
-            // a disabled state. The sieve script only stores data when active,
-            // but the form fields must stay populated regardless of enabled.
+            // Persist all fields (including enabled flag) in user prefs so they
+            // survive a "disabled → save → re-open" cycle and so load_vacation_data()
+            // can fall back gracefully when the Sieve server is temporarily unreachable.
             $this->rc->user->save_prefs([
+                'autoresponse_enabled'   => $enabled,
                 'autoresponse_subject'   => $subject,
                 'autoresponse_body'      => $body,
                 'autoresponse_date_from' => $date_from,
                 'autoresponse_date_to'   => $date_to,
             ]);
+            $this->pending_form_data = null;
             $this->rc->output->command('display_message', $this->gettext('successfullysaved'), 'confirmation');
         } else {
-            $this->rc->output->command('display_message', $this->gettext('sieve_error') . ' ' . $result, 'error');
+
+            $this->rc->output->command('display_message', $result, 'error');
         }
 
-        // Re-register JS command for the re-rendered form
-        $this->rc->output->add_script(
-            "rcmail.register_command('plugin.autoresponse-save', function() {" .
-            "  document.getElementById('autoresponse-form').submit();" .
-            "}, true);",
-            'docready'
-        );
-
+        $this->register_save_command();
         $this->register_handler('plugin.body', [$this, 'render_form']);
         $this->rc->overwrite_action('plugin.autoresponse');
         $this->rc->output->send('plugin');
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Form renderer  (plugin.body slot)
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     public function render_form(array $attrib = []): string
     {
-        $data = $this->load_vacation_data();
+        $data = ($this->pending_form_data !== null)
+            ? $this->pending_form_data
+            : $this->load_vacation_data();
 
         $table = new html_table(['cols' => 2, 'class' => 'propform autoresponse-table']);
 
@@ -178,7 +202,7 @@ class autoresponse extends rcube_plugin
             'value' => '1',
             'class' => 'checkbox',
         ];
-        if ($data['enabled']) {
+        if (!empty($data['enabled'])) {
             $cb_attrs['checked'] = 'checked';
         }
         $table->add('title', html::label('autoresponse_enabled', rcube::Q($this->gettext('enabled'))));
@@ -187,11 +211,12 @@ class autoresponse extends rcube_plugin
         // --- Subject ---
         $table->add('title', html::label('autoresponse_subject', rcube::Q($this->gettext('subject'))));
         $table->add(null, html::tag('input', [
-            'type'  => 'text',
-            'id'    => 'autoresponse_subject',
-            'name'  => '_autoresponse_subject',
-            'value' => rcube::Q($data['subject'], 'strict', false),
-            'class' => 'text autoresponse-wide',
+            'type'      => 'text',
+            'id'        => 'autoresponse_subject',
+            'name'      => '_autoresponse_subject',
+            'value'     => rcube::Q($data['subject'], 'strict', false),
+            'class'     => 'text autoresponse-wide',
+            'maxlength' => self::MAX_SUBJECT_LEN,
         ]));
 
         // --- Body ---
@@ -213,9 +238,7 @@ class autoresponse extends rcube_plugin
         );
 
         // --- Date fields with clear button ---
-        // type="date" cannot be emptied by the user without JS, so a small
-        // × button is added that sets the field value to '' via onclick.
-        $date_field = function(string $id, string $name, string $value): string {
+        $date_field = function (string $id, string $name, string $value): string {
             $input = html::tag('input', [
                 'type'  => 'date',
                 'id'    => $id,
@@ -245,8 +268,7 @@ class autoresponse extends rcube_plugin
                 . html::tag('input', ['type' => 'hidden', 'name' => '_action', 'value' => 'plugin.autoresponse-save'])
                 . html::tag('input', ['type' => 'hidden', 'name' => '_task',   'value' => 'settings']);
 
-        // Wire up the form object so Roundcube can find it (same as password plugin)
-        $this->rc->output->add_gui_object('passform', 'autoresponse-form');
+        $this->rc->output->add_gui_object('autoresponse', 'autoresponse-form');
 
         $submit_button = $this->rc->output->button([
             'command' => 'plugin.autoresponse-save',
@@ -274,9 +296,9 @@ class autoresponse extends rcube_plugin
             );
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Sieve helpers
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     private function load_vacation_data(): array
     {
@@ -288,10 +310,8 @@ class autoresponse extends rcube_plugin
             'date_to'   => '',
         ];
 
-        // Load persisted form fields from user prefs.
-        // These are saved on every submit, independent of enabled state,
-        // so Subject/Body/Dates survive a disable -> save -> re-open cycle.
         $prefs = [
+            'enabled'   => (bool)   $this->rc->config->get('autoresponse_enabled',   false),
             'subject'   => (string) $this->rc->config->get('autoresponse_subject',   ''),
             'body'      => (string) $this->rc->config->get('autoresponse_body',      ''),
             'date_from' => (string) $this->rc->config->get('autoresponse_date_from', ''),
@@ -301,7 +321,6 @@ class autoresponse extends rcube_plugin
         try {
             $sieve = $this->get_sieve();
             if ($sieve === null) {
-                // No sieve connection - still show saved form data, just disabled
                 return array_merge($defaults, $prefs);
             }
 
@@ -310,16 +329,12 @@ class autoresponse extends rcube_plugin
                 return array_merge($defaults, $prefs);
             }
 
-            // Parse only the enabled-state from the sieve script.
-            // Subject/Body/Dates come from user prefs (always up to date).
             $sieve_data = $this->parse_vacation_script((string) $content);
-            $data = array_merge($defaults, $prefs, ['enabled' => $sieve_data['enabled']]);
+            $data       = array_merge($defaults, $prefs, ['enabled' => $sieve_data['enabled']]);
 
-            // Auto-disable the checkbox if the validity period has expired.
-            // The Sieve script itself already stopped sending replies, but the
-            // UI should reflect that state so the user is not confused.
+
             if ($data['enabled'] && $data['date_to'] !== '') {
-                $today = (new DateTime())->format('Y-m-d');
+                $today = (new DateTime('now', new DateTimeZone('UTC')))->format('Y-m-d');
                 if ($data['date_to'] < $today) {
                     $data['enabled'] = false;
                 }
@@ -333,7 +348,6 @@ class autoresponse extends rcube_plugin
         }
     }
 
-    /** @return true|string */
     private function save_vacation_sieve(array $data)
     {
         try {
@@ -343,8 +357,13 @@ class autoresponse extends rcube_plugin
             }
 
             if (!$data['enabled']) {
-                $sieve->save_script(self::SCRIPT_NAME, "# autoresponse disabled\r\n");
-                $sieve->deactivate(self::SCRIPT_NAME);
+                if (!$sieve->save_script(self::SCRIPT_NAME, "# autoresponse disabled\r\n")) {
+                    return $this->gettext('sieve_save_error');
+                }
+
+                if (!$sieve->deactivate(self::SCRIPT_NAME)) {
+                    $this->log_error('deactivate() returned false — script was saved but may still be active.');
+                }
                 return true;
             }
 
@@ -360,14 +379,17 @@ class autoresponse extends rcube_plugin
             return true;
 
         } catch (Throwable $e) {
+
             $this->log_error($e->getMessage());
-            return $e->getMessage();
+            return $this->gettext('sieve_error');
         }
     }
+
 
     private function build_vacation_script(array $data): string
     {
         $has_dates = $data['date_from'] !== '' && $data['date_to'] !== '';
+        $days      = max(1, (int) $this->rc->config->get('autoresponse_vacation_days', 1));
 
         $requires = ['"vacation"'];
         if ($has_dates) {
@@ -375,26 +397,31 @@ class autoresponse extends rcube_plugin
             $requires[] = '"relational"';
         }
 
-        $subject = $this->sieve_escape($data['subject']);
-        $body    = $this->sieve_escape($data['body']);
-        $lines   = ['require [' . implode(', ', $requires) . '];', ''];
+
+        $subject = $this->sieve_escape(str_replace(["\r\n", "\r", "\n"], ' ', $data['subject']));
+
+
+        $body_ml  = $this->sieve_multiline($data['body']);
+        $vacation = 'vacation :days ' . $days . ' :subject "' . $subject . '" ' . $body_ml . ';';
+
+        $script  = 'require [' . implode(', ', $requires) . '];' . "\r\n\r\n";
 
         if ($has_dates) {
             $from    = $this->sieve_escape($data['date_from']);
             $to      = $this->sieve_escape($data['date_to']);
-            $lines[] = 'if allof (';
-            $lines[] = '    currentdate :value "ge" "date" "' . $from . '",';
-            $lines[] = '    currentdate :value "le" "date" "' . $to   . '"';
-            $lines[] = ') {';
-            $lines[] = '    vacation :days 1 :subject "' . $subject . '" "' . $body . '";';
-            $lines[] = '}';
+            $script .= 'if allof (' . "\r\n";
+            $script .= '    currentdate :value "ge" "date" "' . $from . '",' . "\r\n";
+            $script .= '    currentdate :value "le" "date" "' . $to   . '"'  . "\r\n";
+            $script .= ') {' . "\r\n";
+            $script .= '    ' . $vacation . "\r\n";
+            $script .= '}' . "\r\n";
         } else {
-            $lines[] = 'vacation :days 1 :subject "' . $subject . '" "' . $body . '";';
+            $script .= $vacation . "\r\n";
         }
 
-        $lines[] = '';
-        return implode("\r\n", $lines);
+        return $script;
     }
+
 
     private function parse_vacation_script(string $script): array
     {
@@ -409,12 +436,24 @@ class autoresponse extends rcube_plugin
 
         $data['enabled'] = true;
 
+        // Subject is always a quoted-string.
         if (preg_match('/:subject\s+"((?:[^"\\\\]|\\\\.)*)"/i', $script, $m)) {
             $data['subject'] = $this->sieve_unescape($m[1]);
         }
-        if (preg_match('/\bvacation\b[^\r\n]*\s"((?:[^"\\\\]|\\\\.)*)"[\t ]*;/i', $script, $m)) {
+
+        // Body: prefer multi-line literal (current format), fall back to quoted-string (legacy).
+        if (preg_match('/\bvacation\b.*?text:\r?\n(.*?)\r?\n\.\r?\n\s*;/si', $script, $m)) {
+            // Reverse dot-stuffing: a leading '..' becomes a single '.'.
+            $lines = explode("\n", str_replace("\r\n", "\n", $m[1]));
+            $lines = array_map(static function (string $l): string {
+                return (strlen($l) >= 2 && substr($l, 0, 2) === '..') ? substr($l, 1) : $l;
+            }, $lines);
+            $data['body'] = implode("\n", $lines);
+        } elseif (preg_match('/\bvacation\b[^\r\n]*\s"((?:[^"\\\\]|\\\\.)*)"\s*;/i', $script, $m)) {
             $data['body'] = $this->sieve_unescape($m[1]);
         }
+
+        // Date range from currentdate comparisons.
         if (preg_match('/currentdate\s+:value\s+"ge"\s+"date"\s+"(\d{4}-\d{2}-\d{2})"/i', $script, $m)) {
             $data['date_from'] = $m[1];
         }
@@ -425,6 +464,7 @@ class autoresponse extends rcube_plugin
         return $data;
     }
 
+
     private function get_sieve(): ?object
     {
         $this->load_config();
@@ -432,10 +472,20 @@ class autoresponse extends rcube_plugin
         if (!class_exists('rcube_sieve', false)) {
             $lib = (string) $this->rc->config->get('autoresponse_sieve_lib', '');
 
-            if ($lib !== '' && file_exists($lib)) {
-                require_once $lib;
-            } else {
-                // Fallback: search standard plugin directory
+            if ($lib !== '') {
+
+                $real = realpath($lib);
+                if ($real !== false && file_exists($real)) {
+                    require_once $real;
+                } else {
+                    $this->log_error(
+                        'autoresponse_sieve_lib path not found or unresolvable: ' . $lib
+                    );
+                }
+            }
+
+            if (!class_exists('rcube_sieve', false)) {
+
                 $candidates = [
                     RCUBE_PLUGINS_DIR . 'managesieve/lib/Roundcube/rcube_sieve.php',
                     RCUBE_PLUGINS_DIR . 'managesieve/lib/rcube_sieve.php',
@@ -488,13 +538,11 @@ class autoresponse extends rcube_plugin
         return $sieve;
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Utilities
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
-    /**
-     * Returns the skin-aware CSS path, falling back to elastic.
-     */
+
     private function get_css_path(): string
     {
         $skin = (string) $this->rc->config->get('skin', 'elastic');
@@ -505,22 +553,66 @@ class autoresponse extends rcube_plugin
         return $path;
     }
 
+
+    private function register_save_command(): void
+    {
+        $this->rc->output->add_script(
+            "rcmail.register_command('plugin.autoresponse-save', function() {" .
+            "  document.getElementById('autoresponse-form').submit();" .
+            "}, true);",
+            'docready'
+        );
+    }
+
+
+    private function abort_with_error(string $label): void
+    {
+        $this->rc->output->command('display_message', $this->gettext($label), 'error');
+        $this->register_save_command();
+        $this->register_handler('plugin.body', [$this, 'render_form']);
+        $this->rc->overwrite_action('plugin.autoresponse');
+        $this->rc->output->send('plugin');
+    }
+
+
     private function sieve_escape(string $str): string
     {
         return str_replace(['\\', '"'], ['\\\\', '\\"'], $str);
     }
 
+
     private function sieve_unescape(string $str): string
     {
+
         return str_replace(['\\"', '\\\\'], ['"', '\\'], $str);
     }
 
+
+    private function sieve_multiline(string $str): string
+    {
+
+        $normalised = str_replace(["\r\n", "\r"], "\n", $str);
+        $lines      = explode("\n", $normalised);
+
+        $lines = array_map(static function (string $l): string {
+            return (strlen($l) > 0 && $l[0] === '.') ? '.' . $l : $l;
+        }, $lines);
+
+        return "text:\r\n" . implode("\r\n", $lines) . "\r\n.\r\n";
+    }
+
+    /**
+     * Validate a date string (must be a real calendar date in Y-m-d format).
+     */
     private function is_valid_date(string $date): bool
     {
         $d = DateTime::createFromFormat('Y-m-d', $date);
         return $d !== false && $d->format('Y-m-d') === $date;
     }
 
+    /**
+     * Write to the Roundcube error log
+     */
     private function log_error(string $message): void
     {
         rcube::raise_error(

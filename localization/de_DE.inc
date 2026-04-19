@@ -38,7 +38,6 @@ $labels['sieve_error']            = 'Sieve-Fehler:';
 $labels['sieve_connect_error']    = 'Verbindung zum Sieve-Server fehlgeschlagen. Bitte prüfen Sie die Konfiguration.';
 $labels['sieve_save_error']       = 'Das Sieve-Script konnte nicht gespeichert werden.';
 $labels['sieve_activate_error']   = 'Das Sieve-Script konnte nicht aktiviert werden.';
-<?php
 $labels = [];
 $labels['autoresponse']             = 'Abwesenheitsnotiz';
 $labels['autoresponse_title']       = 'Automatische Abwesenheitsnotiz einrichten';

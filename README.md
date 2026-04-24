@@ -16,6 +16,7 @@ It writes and reads a real [Sieve](https://tools.ietf.org/html/rfc5228) `vacatio
 - Form input is preserved on validation errors (no data loss)
 - Falls back to stored user preferences when the Sieve server is temporarily unreachable
 - Automatically deactivates the reply if the end date has passed
+<img width="1367" height="578" alt="image" src="https://github.com/user-attachments/assets/5ea18ad0-a288-4937-96f4-57355612a6d9" />
 
 ---
 

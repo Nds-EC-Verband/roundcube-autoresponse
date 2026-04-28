@@ -1,5 +1,5 @@
 {
-    "name": "EC-NDS/autoresponse",
+    "name": "ec-nds/autoresponse",
     "type": "roundcube-plugin",
     "description": "Simple vacation / out-of-office autoresponse settings for Roundcube",
     "keywords": ["roundcube", "plugin", "vacation", "autoresponse", "sieve"],
